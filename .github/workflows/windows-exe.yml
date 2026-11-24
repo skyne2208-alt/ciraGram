@@ -182,9 +182,48 @@ jobs:
           key: ${{ runner.OS }}-${{ matrix.arch }}-${{ matrix.qt || 'qt' }}-${{ env.CACHE_KEY }}
           restore-keys: ${{ runner.OS }}-${{ matrix.arch }}-${{ matrix.qt || 'qt' }}-
 
+      - name: Free disk space before libraries.
+        shell: pwsh
+        run: |
+          function Free { [math]::Round((Get-PSDrive C).Free / 1GB, 1) }
+          Write-Host "Free on C: before cleanup: $(Free) GB"
+          $dirs = @(
+            'C:\Android', 'C:\Program Files\Android', 'C:\Program Files (x86)\Android',
+            'C:\Microsoft\AndroidNDK', 'C:\Program Files\Microsoft SQL Server',
+            'C:\Program Files\PostgreSQL', 'C:\Program Files\MongoDB', 'C:\Strawberry',
+            'C:\Julia', 'C:\mysql', 'C:\Program Files\Azure Cosmos DB Emulator',
+            'C:\Program Files (x86)\Microsoft SDKs\Azure', 'C:\Program Files\Google',
+            'C:\Program Files (x86)\Google', 'C:\Program Files\Mozilla Firefox',
+            'C:\Program Files (x86)\Microsoft\Edge', 'C:\ProgramData\chocolatey\lib',
+            'C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk',
+            'C:\hostedtoolcache\windows\Java_Adopt_jdk',
+            'C:\hostedtoolcache\windows\go', 'C:\hostedtoolcache\windows\Ruby',
+            'C:\hostedtoolcache\windows\PyPy', 'C:\hostedtoolcache\windows\node'
+          )
+          foreach ($d in $dirs) {
+            if (Test-Path $d) {
+              cmd /c rd /s /q "$d" 2>$null
+              Write-Host "removed $d -> free $(Free) GB"
+            }
+          }
+          Write-Host "Free on C: after cleanup: $(Free) GB"
+
       - name: Libraries.
         run: |
           %TBUILD%\%REPO_NAME%\Telegram\build\prepare\win.bat skip-release silent ${{ matrix.qt }}
+
+      - name: Disk report after libraries.
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "Free on C: $([math]::Round((Get-PSDrive C).Free / 1GB, 1)) GB"
+          Get-ChildItem "$env:USERPROFILE\TBuild" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $n = $_.Name
+            Get-ChildItem $_.FullName -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+              $size = (Get-ChildItem $_.FullName -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum
+              "{0,8:N1} GB  {1}\{2}" -f ($size / 1GB), $n, $_.Name
+            }
+          } | Sort-Object -Descending | Select-Object -First 15
 
       - name: Read configuration matrix.
         shell: bash
