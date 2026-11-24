@@ -44,9 +44,16 @@ jobs:
         run: echo "REPO_NAME=${GITHUB_REPOSITORY##*/}" >> $GITHUB_ENV
 
       - name: Clone.
-        uses: actions/checkout@v7
-        with:
-          path: ${{ env.TBUILD }}\${{ env.REPO_NAME }}
+        shell: bash
+        env:
+          GH_ACTIONS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Репозиторий приватный: actions/checkout не видит ключ из-за ссылки TBuild,
+          # поэтому клонируем вручную с токеном (он не сохраняется в .git/config).
+          AUTH=$(printf 'x-access-token:%s' "$GH_ACTIONS_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
+            clone --depth=1 --branch "$GITHUB_REF_NAME" \
+            "https://github.com/$GITHUB_REPOSITORY" "$TBUILD/$REPO_NAME"
 
       - name: Apply local source snapshot.
         shell: bash
