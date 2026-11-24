@@ -1,9 +1,10 @@
-name: Moka Windows x64 executable
+name: ciraGram Windows x64 executable
 
 on:
+  workflow_dispatch:
   push:
     branches:
-      - codex/windows-exe-20261026
+      - cira-build
 
 permissions:
   contents: read
@@ -52,8 +53,25 @@ jobs:
         run: |
           cd "$TBUILD/$REPO_NAME"
           git submodule update --init --depth=1
-          git apply .github/windows-exe/source.patch
-          git -C Telegram/lib_ui apply ../../.github/windows-exe/lib-ui.patch
+          # Патчи могли уже войти в код: применяем только если ложатся чисто.
+          if git apply --check .github/windows-exe/source.patch 2>/dev/null; then
+            git apply .github/windows-exe/source.patch
+          else
+            echo "source.patch: пропущен (уже в коде)"
+          fi
+          if git -C Telegram/lib_ui apply --check ../../.github/windows-exe/lib-ui.patch 2>/dev/null; then
+            git -C Telegram/lib_ui apply ../../.github/windows-exe/lib-ui.patch
+          else
+            echo "lib-ui.patch: пропущен (уже в сабмодуле)"
+          fi
+
+      - name: Rebrand to ciraGram.
+        shell: bash
+        run: |
+          cd "$TBUILD/$REPO_NAME"
+          pip install pillow
+          python cira-cloud/rebrand.py .
+          python cira-cloud/logo.py .
 
       - name: First set up.
         shell: bash
@@ -257,22 +275,21 @@ jobs:
           $source = Join-Path $env:TBUILD "$env:REPO_NAME\out\Debug\Telegram.exe"
           if (-not (Test-Path $source)) { throw "Missing executable: $source" }
           New-Item -ItemType Directory -Path artifact | Out-Null
-          Copy-Item $source artifact\mokaGram.exe
+          Copy-Item $source artifact\ciraGram.exe
           Copy-Item "$env:TBUILD\$env:REPO_NAME\LICENSE" artifact\LICENSE
-          Copy-Item "$env:TBUILD\$env:REPO_NAME\MOKAGRAM_NOTICE.md" artifact\MOKAGRAM_NOTICE.md
-          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path artifact\mokaGram.exe))
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path artifact\ciraGram.exe))
           $offset = [BitConverter]::ToInt32($bytes, 0x3c)
           if ([BitConverter]::ToUInt32($bytes, $offset) -ne 0x4550) { throw "Invalid PE signature" }
           if ([BitConverter]::ToUInt16($bytes, $offset + 4) -ne 0x8664) { throw "Expected Windows x64 executable" }
-          $hash = (Get-FileHash artifact\mokaGram.exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  mokaGram.exe" | Set-Content artifact\SHA256SUMS.txt
+          $hash = (Get-FileHash artifact\ciraGram.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  ciraGram.exe" | Set-Content artifact\SHA256SUMS.txt
           Write-Host "Verified Windows x64 PE: $hash"
-          & dumpbin /dependents artifact\mokaGram.exe
+          & dumpbin /dependents artifact\ciraGram.exe
 
       - name: Upload Windows x64 executable.
         uses: actions/upload-artifact@v7
         with:
-          name: mokaGram-Windows-x64-Debug
+          name: ciraGram-Windows-x64-Debug
           path: artifact\
           if-no-files-found: error
           retention-days: 14
