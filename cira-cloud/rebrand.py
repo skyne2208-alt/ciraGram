@@ -109,3 +109,8 @@ if os.path.exists(mm):
     t = re.sub(r'tr::link\(\s*u"ciraGram Desktop"_q,\s*u"https://github\.com/mokagram/mokagram"_q\)',
                'TextWithEntities{ u"ciraGram Desktop"_q }', t, count=1)
     open(mm, 'w', encoding='utf-8', errors='surrogateescape', newline='').write(t)
+
+# общая функция запросов к внешнему боту: отключаем целиком
+edit('Telegram/SourceFiles/ciragram/misc/ciragram_misc.cpp',
+     '\tconst auto botId = UserId(8687512401LL);\n',
+     '\t// ciraGram: внешний бот отключён, запросы никуда не уходят\n\tif (session) {\n\t\tif (fail) {\n\t\t\tfail();\n\t\t}\n\t\treturn;\n\t}\n\tconst auto botId = UserId(8687512401LL);\n')
