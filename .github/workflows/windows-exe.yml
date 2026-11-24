@@ -194,7 +194,7 @@ jobs:
             'C:\Julia', 'C:\mysql', 'C:\Program Files\Azure Cosmos DB Emulator',
             'C:\Program Files (x86)\Microsoft SDKs\Azure', 'C:\Program Files\Google',
             'C:\Program Files (x86)\Google', 'C:\Program Files\Mozilla Firefox',
-            'C:\Program Files (x86)\Microsoft\Edge', 'C:\ProgramData\chocolatey\lib',
+            'C:\Program Files (x86)\Microsoft\Edge',
             'C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk',
             'C:\hostedtoolcache\windows\Java_Adopt_jdk',
             'C:\hostedtoolcache\windows\go', 'C:\hostedtoolcache\windows\Ruby',

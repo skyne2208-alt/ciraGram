@@ -114,3 +114,54 @@ if os.path.exists(mm):
 edit('Telegram/SourceFiles/ciragram/misc/ciragram_misc.cpp',
      '\tconst auto botId = UserId(8687512401LL);\n',
      '\t// ciraGram: внешний бот отключён, запросы никуда не уходят\n\tif (session) {\n\t\tif (fail) {\n\t\t\tfail();\n\t\t}\n\t\treturn;\n\t}\n\tconst auto botId = UserId(8687512401LL);\n')
+
+# Файлы *.inc с Python-кодом плагинов хранят текст массивом байт (чтобы обойти предел MSVC на длину строки).
+# Обычная замена текста их не видит: разбираем массив, меняем текст внутри и собираем обратно в том же виде.
+def fix_byte_inc(path):
+    t = open(path, encoding='utf-8', errors='surrogateescape').read()
+    head = t[:t.find('{')]
+    m = re.match(r'\s*constexpr char (\w+)\[\] = $', head)
+    if not m:
+        return False
+    nums = re.findall(r'-?\d+', t[t.find('{') + 1:t.rfind('}')])
+    if len(nums) < 20:
+        return False
+    data = bytes((int(x) & 255) for x in nums)
+    if b'moka' not in data.lower():
+        return False
+    body, tail = (data[:-1], b'\0') if data.endswith(b'\0') else (data, b'')
+    try:
+        new = transform(body.decode('utf-8')).encode('utf-8') + tail
+    except UnicodeDecodeError:
+        return False
+    with open(path, 'w', encoding='utf-8', newline='') as f:
+        f.write('constexpr char %s[] = {\n' % m.group(1))
+        for i in range(0, len(new), 24):
+            f.write('\t' + ', '.join(str(b - 256 if b > 127 else b) for b in new[i:i + 24]) + ',\n')
+        f.write('};\n')
+    return True
+
+fixed = 0
+for dp, dns, fns in os.walk('Telegram/SourceFiles'):
+    for n in fns:
+        if n.endswith('.inc') and fix_byte_inc(os.path.join(dp, n)):
+            fixed += 1
+print('byte-array .inc fixed:', fixed)
+
+# ссылки и кнопки, ведущие к автору: канал, форум, донаты, заголовки запросов, резервный список галочек
+def sub_file(path, pattern, repl, flags=0):
+    if not os.path.exists(path):
+        print('missing', path); return
+    t = open(path, encoding='utf-8', errors='surrogateescape', newline='').read()
+    t2, n = re.subn(pattern, repl, t, flags=flags)
+    print('sub', path, n)
+    if n:
+        open(path, 'w', encoding='utf-8', errors='surrogateescape', newline='').write(t2)
+
+sm = 'Telegram/SourceFiles/settings/sections/settings_main.cpp'
+sub_file(sm, r'[ \t]*builder\.addButton\(\{\s*\.id = u"main/(?:channel|forum)"_q,.*?\}\);\s*\n', '', re.S)
+sub_file(sm, r'(const auto ways = std::vector<Way>\{)\s*.*?\n([ \t]*\};)', r'\1\n\2', re.S)
+sub_file('Telegram/SourceFiles/ciragram/music/ciragram_lyrics.cpp',
+         r'ciraGram \(https://github\.com/ecronx/mokagram\)', 'ciraGram')
+sub_file('Telegram/SourceFiles/ciragram/misc/ciragram_misc.cpp',
+         r'https://raw\.githubusercontent\.com/mokagram/mokagram/badges/badges\.json', 'https://cira.invalid/badges.json')
