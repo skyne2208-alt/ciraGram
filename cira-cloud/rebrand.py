@@ -113,7 +113,7 @@ if os.path.exists(mm):
 # общая функция запросов к внешнему боту: отключаем целиком
 edit('Telegram/SourceFiles/ciragram/misc/ciragram_misc.cpp',
      '\tconst auto botId = UserId(8687512401LL);\n',
-     '\t// ciraGram: внешний бот отключён, запросы никуда не уходят\n\tif (session) {\n\t\tif (fail) {\n\t\t\tfail();\n\t\t}\n\t\treturn;\n\t}\n\tconst auto botId = UserId(8687512401LL);\n')
+     '\t// ciraGram: внешний бот отключён, запросы никуда не уходят\n\t(void)session;\n\t(void)query;\n\t(void)done;\n\tif (fail) {\n\t\tfail();\n\t}\n\treturn;\n\tconst auto botId = UserId(8687512401LL);\n')
 
 # Файлы *.inc с Python-кодом плагинов хранят текст массивом байт (чтобы обойти предел MSVC на длину строки).
 # Обычная замена текста их не видит: разбираем массив, меняем текст внутри и собираем обратно в том же виде.

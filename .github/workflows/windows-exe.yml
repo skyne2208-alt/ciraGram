@@ -32,6 +32,11 @@ jobs:
         shell: cmd
 
     steps:
+      - name: Python 3.12 for plugins.
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.10'
+
       - name: Prepare directories.
         run: |
           mkdir %userprofile%\TBuild\Libraries
@@ -60,6 +65,11 @@ jobs:
         run: |
           cd "$TBUILD/$REPO_NAME"
           git submodule update --init --depth=1
+          # Вложенные сабмодули (quickjs внутри widget-sandbox и др.) нужны для сборки.
+          # cppgir с gitlab нужен только на Linux и может отказать в доступе: пропускаем.
+          git -C cmake config submodule.external/glib/cppgir.update none
+          git submodule update --init --recursive --depth=1
+          test -f Telegram/ThirdParty/widget-sandbox/packages/ios/Sources/CQuickJS/quickjs/quickjs.c
           # Патчи могли уже войти в код: применяем только если ложатся чисто.
           if git apply --check .github/windows-exe/source.patch 2>/dev/null; then
             git apply .github/windows-exe/source.patch
@@ -198,7 +208,8 @@ jobs:
             'C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk',
             'C:\hostedtoolcache\windows\Java_Adopt_jdk',
             'C:\hostedtoolcache\windows\go', 'C:\hostedtoolcache\windows\Ruby',
-            'C:\hostedtoolcache\windows\PyPy', 'C:\hostedtoolcache\windows\node'
+            'C:\hostedtoolcache\windows\PyPy', 'C:\hostedtoolcache\windows\node',
+            'C:\hostedtoolcache\windows\CodeQL'
           )
           foreach ($d in $dirs) {
             if (Test-Path $d) {
@@ -295,6 +306,14 @@ jobs:
             ${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
           key: ${{ steps.cache-qt.outputs.cache-primary-key }}
 
+      - name: Free disk space before build.
+        shell: pwsh
+        run: |
+          # После сборки библиотек msys64 больше не нужен.
+          if (Test-Path 'C:\msys64') { cmd /c rd /s /q "C:\msys64" 2>$null }
+          Get-PSDrive -PSProvider FileSystem | ForEach-Object { "{0}: free {1:N1} GB" -f $_.Name, ($_.Free / 1GB) }
+          "CPU cores: $env:NUMBER_OF_PROCESSORS"
+
       - name: Telegram Desktop build.
         if: env.ONLY_CACHE == 'false'
         run: |
@@ -305,6 +324,8 @@ jobs:
           %TDESKTOP_BUILD_ARCH% ^
           ${{ matrix.qt }} ^
           %TDESKTOP_BUILD_API% ^
+          -D Python3_ROOT_DIR="%pythonLocation%" ^
+          -D Python3_FIND_REGISTRY=NEVER ^
           -D CMAKE_CONFIGURATION_TYPES=Debug ^
           -D CMAKE_COMPILE_WARNING_AS_ERROR=OFF ^
           -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
@@ -313,7 +334,7 @@ jobs:
           %TDESKTOP_BUILD_DEFINE%
           if errorlevel 1 exit /b 1
 
-          cmake --build ..\out --config Debug --target Telegram --parallel 2
+          cmake --build ..\out --config Debug --target Telegram --parallel %NUMBER_OF_PROCESSORS%
 
       - name: Package Windows x64 executable.
         shell: pwsh
@@ -323,6 +344,10 @@ jobs:
           New-Item -ItemType Directory -Path artifact | Out-Null
           Copy-Item $source artifact\ciraGram.exe
           Copy-Item "$env:TBUILD\$env:REPO_NAME\LICENSE" artifact\LICENSE
+          $ver = (python --version).Split(' ')[1]
+          Invoke-WebRequest "https://www.python.org/ftp/python/$ver/python-$ver-embed-amd64.zip" -OutFile py-embed.zip
+          Expand-Archive py-embed.zip -DestinationPath artifact -Force
+          Remove-Item artifact\python.exe, artifact\pythonw.exe -ErrorAction SilentlyContinue
           $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path artifact\ciraGram.exe))
           $offset = [BitConverter]::ToInt32($bytes, 0x3c)
           if ([BitConverter]::ToUInt32($bytes, $offset) -ne 0x4550) { throw "Invalid PE signature" }
