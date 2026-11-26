@@ -2,9 +2,6 @@ name: ciraGram Windows x64 executable
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - cira-build
 
 permissions:
   contents: read

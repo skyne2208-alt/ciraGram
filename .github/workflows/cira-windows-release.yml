@@ -1,0 +1,269 @@
+name: ciraGram Windows Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - cira-build
+
+permissions:
+  contents: read
+
+jobs:
+
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    env:
+      PREPARE_PATH: "Telegram/build/prepare/prepare.py"
+
+    defaults:
+      run:
+        shell: cmd
+
+    steps:
+      - name: Python 3.12 (тот же для cmake и для упаковки, иначе exe требует чужой pythonNNN.dll).
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.10'
+
+      - name: Prepare directories.
+        run: |
+          mkdir %userprofile%\TBuild\Libraries
+          mklink /d %GITHUB_WORKSPACE%\TBuild %userprofile%\TBuild
+          echo TBUILD=%GITHUB_WORKSPACE%\TBuild>>%GITHUB_ENV%
+          echo LibrariesPath=%GITHUB_WORKSPACE%\TBuild\Libraries\win64>>%GITHUB_ENV%
+
+      - name: Free up disk space.
+        shell: pwsh
+        run: |
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name,@{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}
+          # Сборка библиотек занимает десятки ГБ: убираем то, что нам не нужно (Android SDK, лишние тулчейны).
+          foreach ($p in 'C:\Android','C:\Program Files (x86)\Android','C:\Program Files\Android','C:\Program Files\Azure Cosmos DB Emulator','C:\Program Files\MongoDB','C:\Program Files\PostgreSQL','C:\Program Files (x86)\Microsoft SDKs\Azure','C:\hostedtoolcache\windows\Java_Temurin-Hotspot_jdk','C:\hostedtoolcache\windows\go','C:\hostedtoolcache\windows\Ruby','C:\hostedtoolcache\windows\CodeQL','C:\Julia','C:\Strawberry','C:\Program Files\Microsoft SQL Server','C:\Program Files\Google','C:\Program Files (x86)\Google','C:\Program Files\Mozilla Firefox','C:\Program Files (x86)\Microsoft\Edge','C:\hostedtoolcache\windows\PyPy','C:\hostedtoolcache\windows\node','C:\hostedtoolcache\windows\Java_Adopt_jdk') {
+            if (Test-Path $p) { Remove-Item -Recurse -Force $p -ErrorAction SilentlyContinue }
+          }
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name,@{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}
+
+      - name: Get repository name.
+        shell: bash
+        run: echo "REPO_NAME=${GITHUB_REPOSITORY##*/}" >> $GITHUB_ENV
+
+      - name: Clone.
+        shell: bash
+        env:
+          GH_ACTIONS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          AUTH=$(printf 'x-access-token:%s' "$GH_ACTIONS_TOKEN" | base64 -w0)
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
+            clone --depth=1 --branch "$GITHUB_REF_NAME" \
+            "https://github.com/$GITHUB_REPOSITORY" "$TBUILD/$REPO_NAME"
+          cd "$TBUILD/$REPO_NAME"
+          git submodule update --init --depth=1
+          git -C cmake config submodule.external/glib/cppgir.update none
+          git submodule update --init --recursive --depth=1
+          test -f Telegram/ThirdParty/widget-sandbox/packages/ios/Sources/CQuickJS/quickjs/quickjs.c
+
+      - name: Rebrand to ciraGram.
+        shell: bash
+        run: |
+          cd "$TBUILD/$REPO_NAME"
+          pip install pillow
+          python cira-cloud/rebrand.py .
+          python cira-cloud/logo.py .
+
+      - name: First set up.
+        shell: bash
+        run: |
+          DOCPATH=$TBUILD/$REPO_NAME/docs/building-win.md
+          SDK="$(grep "SDK version" $DOCPATH | sed -r 's/.*\*\*(.*)\*\* SDK version.*/\1/')"
+          echo "SDK=$SDK" >> $GITHUB_ENV
+
+          sed -i '/CMAKE_${lang}_FLAGS_DEBUG_INIT/s/${_Zi}//' "$PROGRAMFILES"/CMake/share/cmake*/Modules/Platform/Windows-MSVC.cmake
+
+          echo "$(sha256sum $TBUILD/$REPO_NAME/$PREPARE_PATH | awk '{ print $1 }')" >> CACHE_KEY.txt
+          echo "$SDK" >> CACHE_KEY.txt
+          echo "CACHE_KEY=$(sha256sum CACHE_KEY.txt | awk '{ print $1 }')" >> $GITHUB_ENV
+
+          git config --global user.email "you@example.com"
+          git config --global user.name "Sample"
+
+      - uses: Eden-CI/msvc-dev-cmd@master
+        name: Native Tools Command Prompt.
+        with:
+          arch: x64
+          sdk: ${{ env.SDK }}
+          toolset: '14.44'
+
+      - name: NuGet sources.
+        run: |
+          nuget sources Disable -Name "Microsoft Visual Studio Offline Packages"
+          nuget sources Add -Source https://api.nuget.org/v3/index.json & exit 0
+
+      - name: ThirdParty cache.
+        id: cache-third-party
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.TBUILD }}\ThirdParty
+          key: ${{ runner.OS }}-${{ runner.arch }}-third-party-${{ env.CACHE_KEY }}-${{ github.run_id }}
+          restore-keys: ${{ runner.OS }}-${{ runner.arch }}-third-party-
+
+      - name: Libraries cache.
+        id: cache-libs
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ${{ env.LibrariesPath }}\*
+            !${{ env.LibrariesPath }}\cache_keys
+            !${{ env.LibrariesPath }}\[qQ]t[_-]*
+            ${{ env.LibrariesPath }}\cache_keys\*
+            !${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
+          key: ${{ runner.OS }}-x64-libs-v3-${{ env.CACHE_KEY }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.OS }}-x64-libs-v3-
+            ${{ runner.OS }}-x64-libs-v2-
+
+      - name: Qt cache.
+        id: cache-qt
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            ${{ env.LibrariesPath }}\[qQ]t[_-]*
+            ${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
+          key: ${{ runner.OS }}-x64-qt6r-${{ env.CACHE_KEY }}-${{ github.run_id }}
+          restore-keys: ${{ runner.OS }}-x64-qt6r-
+
+      - name: ATL для breakpad (нужен для того тулсета, которым собирает prepare, 14.44).
+        shell: pwsh
+        run: |
+          $inst = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          if (-not (Test-Path "$inst\VC\Tools\MSVC\14.44*\atlmfc\include\atlbase.h")) {
+            Start-Process -Wait -FilePath "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\setup.exe" -ArgumentList "modify --installPath `"$inst`" --add Microsoft.VisualStudio.Component.VC.14.44.17.14.ATL --quiet --norestart --noUpdateInstaller"
+          }
+          Get-ChildItem "$inst\VC\Tools\MSVC\*\atlmfc\include\atlbase.h"
+
+      - name: Пересобрать rust-стадии, если из кэша вырезаны их исходники.
+        shell: bash
+        run: |
+          LP="${LibrariesPath//\\//}"
+          if [ ! -f "$LP/wallet-engine/Cargo.toml" ]; then
+            rm -f "$LP"/cache_keys/tlottie "$LP"/cache_keys/wallet-engine "$LP"/cache_keys/tdesktop_rust
+            echo "ключи tlottie, wallet-engine, tdesktop_rust сброшены"
+          fi
+          if [ ! -f "$LP/win64/tg_angle/out/Release/tg_angle.lib" ]; then
+            rm -f "$LP"/cache_keys/tg_angle
+            echo "ключ tg_angle сброшен"
+          fi
+
+      - name: Libraries.
+        id: libs
+        continue-on-error: true
+        timeout-minutes: 300
+        run: |
+          %TBUILD%\%REPO_NAME%\Telegram\build\prepare\win.bat silent qt6
+
+      - name: Trim libraries (кэш лимит 10 ГБ на репозиторий).
+        shell: bash
+        run: find $LibrariesPath '(' '(' ! '(' -name '*.lib' -o -name '*.a' -o -name '*.exe' -o -name '*.h' -o -name '*.hpp' -o -name '*.inc' -o -name '*.cmake' -o -name '*.pc' -o -path '*/include/*' -o -path '*/objects-*' -o -path '*/cache_keys/*' -o -path '*/patches/*' -o -path '*/nv-codec-headers/*' -o -path '*/src/wallet_engine/*' -o '(' '(' -path '*/tlottie/*' -o -path '*/wallet-engine/*' ')' ! -path '*/target/*' ')' ')' -type f ')' -o '(' -empty ! -path '*/tlottie/*' ! -path '*/wallet-engine/*' ')' ')' -delete
+
+      # Сохраняем кэши даже если библиотеки не доехали: следующий запуск продолжит с места падения.
+      - name: Save Qt cache.
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ${{ env.LibrariesPath }}\[qQ]t[_-]*
+            ${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
+          key: ${{ steps.cache-qt.outputs.cache-primary-key }}
+
+      - name: Save libraries cache.
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            ${{ env.LibrariesPath }}\*
+            !${{ env.LibrariesPath }}\cache_keys
+            !${{ env.LibrariesPath }}\[qQ]t[_-]*
+            ${{ env.LibrariesPath }}\cache_keys\*
+            !${{ env.LibrariesPath }}\cache_keys\[qQ]t[_-]*
+          key: ${{ steps.cache-libs.outputs.cache-primary-key }}
+
+      - name: Save ThirdParty cache.
+        if: always()
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.TBUILD }}\ThirdParty
+          key: ${{ steps.cache-third-party.outputs.cache-primary-key }}
+
+      - name: Fail if libraries failed.
+        if: steps.libs.outcome == 'failure'
+        shell: bash
+        run: exit 1
+
+      - name: "Освободить место перед сборкой клиента (на диске C всего около 28 ГБ)."
+        shell: pwsh
+        run: |
+          # Исходники и сборочные деревья Qt больше не нужны: Qt уже установлен в Qt-*.
+          Get-ChildItem "$env:LibrariesPath" -Directory -Filter 'qt_*' -ErrorAction SilentlyContinue | ForEach-Object { Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue }
+          Get-PSDrive -PSProvider FileSystem | Format-Table Name,@{n='FreeGB';e={[math]::Round($_.Free/1GB,1)}}
+
+      - name: Telegram Desktop build.
+        run: |
+          cd %TBUILD%\%REPO_NAME%\Telegram
+
+          call configure.bat ^
+          -G "Ninja Multi-Config" ^
+          qt6 ^
+          -D TDESKTOP_API_ID=611335 ^
+          -D TDESKTOP_API_HASH=d524b414d21f4d37f08684c1df41ac9c ^
+          -D CMAKE_CONFIGURATION_TYPES=Release ^
+          -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON ^
+          -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON ^
+          -D DESKTOP_APP_ENABLE_LTO=OFF ^
+          -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
+          -D Python3_ROOT_DIR="%pythonLocation%" ^
+          -D Python3_FIND_REGISTRY=NEVER
+
+          cmake --build ..\out --config Release --parallel -- -k 0
+
+      - name: Package.
+        shell: pwsh
+        run: |
+          $out = "$env:TBUILD\$env:REPO_NAME\out\Release"
+          New-Item -ItemType Directory -Force dist, stage, stage\modules\x64\d3d | Out-Null
+          Copy-Item "$out\Telegram.exe" stage\ciraGram.exe
+          # ANGLE рисует интерфейс через Direct3D: без d3dcompiler_47.dll отрисовка уходит на процессор и всё тормозит.
+          $d3d = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Redist\D3D\x64\d3dcompiler_47.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $d3d) { $d3d = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\d3dcompiler_47.dll" | Sort-Object FullName -Descending | Select-Object -First 1 }
+          if (-not $d3d) { throw "d3dcompiler_47.dll не найден" }
+          Copy-Item $d3d.FullName stage\modules\x64\d3d\d3dcompiler_47.dll
+          $ver = (python --version).Split(' ')[1]
+          Invoke-WebRequest "https://www.python.org/ftp/python/$ver/python-$ver-embed-amd64.zip" -OutFile py-embed.zip
+          Expand-Archive py-embed.zip -DestinationPath stage -Force
+          Remove-Item stage\python.exe, stage\pythonw.exe -ErrorAction SilentlyContinue
+          $need = [regex]::Matches([Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes("stage\ciraGram.exe")), 'python3\d+\.dll') | ForEach-Object Value | Sort-Object -Unique | Where-Object { $_ -ne 'python3.dll' }
+          foreach ($n in $need) { if (-not (Test-Path "stage\$n")) { throw "exe требует $n, в пакете её нет" } }
+          # В архиве одна папка ciraGram\: виден ciraGram.exe, остальное помечено скрытым.
+          @'
+          import os, zipfile
+          root = "stage"
+          with zipfile.ZipFile(r"dist\ciraGram-win-x64.zip", "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+              for dp, dns, fns in os.walk(root):
+                  for f in sorted(fns):
+                      full = os.path.join(dp, f)
+                      rel = os.path.relpath(full, root).replace(os.sep, "/")
+                      zi = zipfile.ZipInfo("ciraGram/" + rel, date_time=(2026, 1, 1, 0, 0, 0))
+                      zi.compress_type = zipfile.ZIP_DEFLATED
+                      zi.create_system = 0
+                      zi.external_attr = 0x20 | (0 if rel == "ciraGram.exe" else 0x02)
+                      z.writestr(zi, open(full, "rb").read())
+          '@ | python -
+          Get-ChildItem dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ciraGram-Windows-x64-Release
+          path: dist\ciraGram-win-x64.zip
+          if-no-files-found: error
+          retention-days: 14
