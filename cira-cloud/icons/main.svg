@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"><defs>
+<linearGradient id="g" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="1024" y2="1024"><stop offset="0" stop-color="#4C8DFF"/><stop offset="1" stop-color="#5B3FF0"/></linearGradient>
+<linearGradient id="gg" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="1024" y2="1024"><stop offset=".15" stop-color="#62A6FF"/><stop offset=".85" stop-color="#7352FF"/></linearGradient>
+<linearGradient id="hl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".18"/><stop offset=".55" stop-color="#fff" stop-opacity="0"/></linearGradient>
+<linearGradient id="dk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2B2E37"/><stop offset="1" stop-color="#15161B"/></linearGradient>
+<filter id="sh" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#1B1060" flood-opacity=".33"/></filter>
+<filter id="ol" x="-10%" y="-10%" width="120%" height="120%"><feMorphology in="SourceAlpha" operator="erode" radius="15" result="e"/><feComposite in="SourceGraphic" in2="e" operator="out"/></filter>
+<filter id="st" x="-15%" y="-15%" width="130%" height="130%">
+  <feMorphology in="SourceAlpha" operator="dilate" radius="15" result="d"/>
+  <feFlood flood-color="#1B2A6B"/><feComposite in2="d" operator="in" result="ring"/>
+  <feOffset in="ring" dx="10" dy="14" result="shadow"/>
+  <feMerge><feMergeNode in="shadow"/><feMergeNode in="ring"/><feMergeNode in="SourceGraphic"/></feMerge>
+</filter>
+</defs><rect width="1024" height="1024" rx="232" fill="url(#g)"/><rect width="1024" height="1024" rx="232" fill="url(#hl)"/><g filter="url(#sh)"><path d="M 701.5 670.6 A 255 255 0 1 1 701.5 329.4" fill="none" stroke="#fff" stroke-width="118" stroke-linecap="round"/><path d="M 449.0 772.8 L 232.7 789.2 L 248.9 595.8 Z" fill="#fff" stroke="#fff" stroke-width="22" stroke-linejoin="round"/></g></svg>

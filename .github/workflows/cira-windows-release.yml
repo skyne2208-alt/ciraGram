@@ -231,39 +231,28 @@ jobs:
         shell: pwsh
         run: |
           $out = "$env:TBUILD\$env:REPO_NAME\out\Release"
-          New-Item -ItemType Directory -Force dist, stage, stage\modules\x64\d3d | Out-Null
+          New-Item -ItemType Directory -Force stage, stage\modules\x64\d3d | Out-Null
           Copy-Item "$out\Telegram.exe" stage\ciraGram.exe
           # ANGLE рисует интерфейс через Direct3D: без d3dcompiler_47.dll отрисовка уходит на процессор и всё тормозит.
           $d3d = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\Redist\D3D\x64\d3dcompiler_47.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $d3d) { $d3d = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\d3dcompiler_47.dll" | Sort-Object FullName -Descending | Select-Object -First 1 }
           if (-not $d3d) { throw "d3dcompiler_47.dll не найден" }
           Copy-Item $d3d.FullName stage\modules\x64\d3d\d3dcompiler_47.dll
+          # Встроенный Python для плагинов: отдельной папкой python\, клиент загружает его оттуда сам.
           $ver = (python --version).Split(' ')[1]
           Invoke-WebRequest "https://www.python.org/ftp/python/$ver/python-$ver-embed-amd64.zip" -OutFile py-embed.zip
-          Expand-Archive py-embed.zip -DestinationPath stage -Force
-          Remove-Item stage\python.exe, stage\pythonw.exe -ErrorAction SilentlyContinue
+          Expand-Archive py-embed.zip -DestinationPath stage\python -Force
+          Remove-Item stage\python\python.exe, stage\python\pythonw.exe -ErrorAction SilentlyContinue
           $need = [regex]::Matches([Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes("stage\ciraGram.exe")), 'python3\d+\.dll') | ForEach-Object Value | Sort-Object -Unique | Where-Object { $_ -ne 'python3.dll' }
-          foreach ($n in $need) { if (-not (Test-Path "stage\$n")) { throw "exe требует $n, в пакете её нет" } }
-          # В архиве одна папка ciraGram\: виден ciraGram.exe, остальное помечено скрытым.
-          @'
-          import os, zipfile
-          root = "stage"
-          with zipfile.ZipFile(r"dist\ciraGram-win-x64.zip", "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
-              for dp, dns, fns in os.walk(root):
-                  for f in sorted(fns):
-                      full = os.path.join(dp, f)
-                      rel = os.path.relpath(full, root).replace(os.sep, "/")
-                      zi = zipfile.ZipInfo("ciraGram/" + rel, date_time=(2026, 1, 1, 0, 0, 0))
-                      zi.compress_type = zipfile.ZIP_DEFLATED
-                      zi.create_system = 0
-                      zi.external_attr = 0x20 | (0 if rel == "ciraGram.exe" else 0x02)
-                      z.writestr(zi, open(full, "rb").read())
-          '@ | python -
-          Get-ChildItem dist
+          foreach ($n in $need) { if (-not (Test-Path "stage\python\$n")) { throw "exe требует $n, в папке python её нет" } }
+          if (-not (Get-ChildItem stage\python -Filter 'python3*._pth')) { throw "нет ._pth в папке python" }
+          # Проверка, что правка загрузки Python из папки python\ попала в exe.
+          if (-not ([Text.Encoding]::Unicode.GetString([IO.File]::ReadAllBytes("stage\ciraGram.exe")).Contains('python\')) ) { throw "в exe нет пути python\" }
+          "Корень пакета:"; Get-ChildItem stage | Format-Table Name, Length
 
       - uses: actions/upload-artifact@v7
         with:
-          name: ciraGram-Windows-x64-Release
-          path: dist\ciraGram-win-x64.zip
+          name: ciraGram-Windows-x64
+          path: stage\
           if-no-files-found: error
           retention-days: 14

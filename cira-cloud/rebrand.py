@@ -76,7 +76,7 @@ def edit(path, old, new):
     if not os.path.exists(path):
         print('missing', path); return
     s = open(path, encoding='utf-8', errors='surrogateescape', newline='').read()
-    if old in s:
+    if old in s and new not in s:
         open(path, 'w', encoding='utf-8', errors='surrogateescape', newline='').write(s.replace(old, new))
         print('edited', path)
 
@@ -165,3 +165,69 @@ sub_file('Telegram/SourceFiles/ciragram/music/ciragram_lyrics.cpp',
          r'ciraGram \(https://github\.com/ecronx/mokagram\)', 'ciraGram')
 sub_file('Telegram/SourceFiles/ciragram/misc/ciragram_misc.cpp',
          r'https://raw\.githubusercontent\.com/mokagram/mokagram/badges/badges\.json', 'https://cira.invalid/badges.json')
+
+# --- Язык: если язык Telegram ещё не выбран (первый запуск), берём язык Windows ---
+lang_cpp = 'Telegram/SourceFiles/ciragram/lang/ciragram_lang.cpp'
+edit(lang_cpp, '#include <QtCore/QProcessEnvironment>\n',
+     '#include <QtCore/QProcessEnvironment>\n#include <QtCore/QLocale>\n')
+sub_file(lang_cpp,
+         r'(\tif \(id\.isEmpty\(\)\) \{\n)(?:\t\t//[^\n]*\n)+\t\treturn 2;\n',
+         r'\1\t\t// ciraGram: язык Telegram ещё не выбран, ориентируемся на язык системы.\n'
+         r'\t\tconst auto system = QLocale::system().name();\n'
+         r'\t\treturn (system.startsWith(u"ru") || system.startsWith(u"uk") || system.startsWith(u"be")) ? 1 : 2;\n')
+
+# --- Нагрузка: серверы галочек отключены, не опрашиваем их каждые 3 секунды ---
+edit('Telegram/SourceFiles/ciragram/misc/ciragram_misc.cpp',
+     '\tLoad();\n\tstatic auto lifetime = rpl::lifetime();\n',
+     '\tLoad();\n\treturn; // ciraGram: серверы галочек отключены, фоновый опрос не нужен\n\tstatic auto lifetime = rpl::lifetime();\n')
+
+# --- Python в папке python\ рядом с ciraGram.exe (в корне остаются только exe, modules и python) ---
+edit('Telegram/SourceFiles/ciragram/plugins/ciragram_plugins.cpp',
+     'swprintf(name, 32, L"python%d%d.dll", PY_MAJOR_VERSION, PY_MINOR_VERSION);\n',
+     'swprintf(name, 32, L"python%d%d.dll", PY_MAJOR_VERSION, PY_MINOR_VERSION);\n'
+     '\t\t// ciraGram: встроенный Python лежит в папке python рядом с клиентом.\n'
+     '\t\t// Загружаем его по полному пути: отложенная загрузка потом найдёт уже загруженную библиотеку,\n'
+     '\t\t// а Python возьмёт python3NN._pth рядом с ней и найдёт свою стандартную библиотеку.\n'
+     '\t\t{\n'
+     '\t\t\tstatic wchar_t path[4096];\n'
+     '\t\t\tconst auto length = GetModuleFileNameW(nullptr, path, 4096);\n'
+     '\t\t\tif (length > 0 && length < 4000) {\n'
+     '\t\t\t\tif (const auto slash = wcsrchr(path, L\'\\\\\')) {\n'
+     '\t\t\t\t\tslash[1] = 0;\n'
+     '\t\t\t\t\twcscat_s(path, 4096, L"python\\\\");\n'
+     '\t\t\t\t\twcscat_s(path, 4096, name);\n'
+     '\t\t\t\t\tif (LoadLibraryExW(path, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH) != nullptr) {\n'
+     '\t\t\t\t\t\treturn true;\n'
+     '\t\t\t\t\t}\n'
+     '\t\t\t\t}\n'
+     '\t\t\t}\n'
+     '\t\t}\n')
+
+# --- Иконки в меню «Иконка приложения»: новые варианты ciraGram вместо mokaGram ---
+icons_inc = 'Telegram/SourceFiles/ciragram/misc/ciragram_app_icons.inc'
+if os.path.exists(icons_inc):
+    from io import BytesIO
+    try:
+        from PIL import Image
+    except ImportError:
+        Image = None
+    order = ['classic', 'fill', 'outline', 'black', 'white', 'sticker']
+    icon_dir = os.path.join('cira-cloud', 'icons')
+    lines = ['// Иконки приложения (выбор в настройках), 256x256 PNG, логотип ciraGram.']
+    for i, name in enumerate(order):
+        src = os.path.join(icon_dir, name + '.png')
+        if Image:
+            buf = BytesIO()
+            Image.open(src).convert('RGBA').resize((256, 256), Image.LANCZOS).save(buf, 'PNG', optimize=True)
+            data = buf.getvalue()
+        else:
+            data = open(src, 'rb').read()
+        lines.append('constexpr unsigned char kAppIcon%d[] = {' % i)
+        for j in range(0, len(data), 24):
+            lines.append(','.join(str(b) for b in data[j:j + 24]) + ',')
+        lines.append('};')
+    lines.append('constexpr const unsigned char *kAppIcons[] = { %s };' % ', '.join('kAppIcon%d' % i for i in range(6)))
+    lines.append('constexpr int kAppIconSizes[] = { %s };' % ', '.join('int(sizeof(kAppIcon%d))' % i for i in range(6)))
+    with open(icons_inc, 'w', encoding='utf-8', newline='\n') as f:
+        f.write('\n'.join(lines) + '\n')
+    print('app icons regenerated')
