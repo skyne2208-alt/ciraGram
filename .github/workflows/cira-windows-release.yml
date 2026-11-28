@@ -55,6 +55,8 @@ jobs:
         env:
           GH_ACTIONS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Файлы как в репозитории (LF): правки ребрендинга ищут точный текст.
+          git config --global core.autocrlf false
           AUTH=$(printf 'x-access-token:%s' "$GH_ACTIONS_TOKEN" | base64 -w0)
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $AUTH" \
             clone --depth=1 --branch "$GITHUB_REF_NAME" \

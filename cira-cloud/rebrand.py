@@ -72,23 +72,36 @@ for p in paths:
         os.rename(p, q); renamed += 1
 print('paths renamed:', renamed)
 
+def read_lf(path):
+    """Текст файла с переводами строк \n (на Windows git может отдать \r\n) и признак CRLF."""
+    s = open(path, encoding='utf-8', errors='surrogateescape', newline='').read()
+    crlf = '\r\n' in s
+    return s.replace('\r\n', '\n'), crlf
+
+def write_lf(path, s, crlf):
+    if crlf:
+        s = s.replace('\n', '\r\n')
+    open(path, 'w', encoding='utf-8', errors='surrogateescape', newline='').write(s)
+
 def edit(path, old, new):
     if not os.path.exists(path):
         print('missing', path); return
-    s = open(path, encoding='utf-8', errors='surrogateescape', newline='').read()
+    s, crlf = read_lf(path)
     if old in s and new not in s:
-        open(path, 'w', encoding='utf-8', errors='surrogateescape', newline='').write(s.replace(old, new))
+        write_lf(path, s.replace(old, new), crlf)
         print('edited', path)
+    elif new not in s:
+        print('NOT APPLIED', path, repr(old[:60]))
 
 # окно «О программе»: оставляем только Telegram Desktop (его авторство снять нельзя)
 ab = 'Telegram/SourceFiles/boxes/about_box.cpp'
 if os.path.exists(ab):
-    t = open(ab, encoding='utf-8', errors='surrogateescape', newline='').read()
+    t, ab_crlf = read_lf(ab)
     t2 = re.sub(r'addText\(rpl::single\(\s*TextWithEntities\{ QString::fromUtf8\("ciraGram, автор "\) \}.*?"\)\)\)\);',
                 'addText(rpl::single(TextWithEntities{ QString::fromUtf8("ciraGram. Основано на Telegram Desktop.") }));',
                 t, count=1, flags=re.S)
     print('about box rewritten' if t2 != t else 'about box: pattern not found')
-    open(ab, 'w', encoding='utf-8', errors='surrogateescape', newline='').write(t2)
+    write_lf(ab, t2, ab_crlf)
 open('README.md', 'w', encoding='utf-8', newline='\n').write(
     "# ciraGram\n\nКлиент на основе Telegram Desktop (GPLv3) с плагинами, режимом призрака, "
     "сохранением удалённых сообщений, музыкальным плеером и другими функциями.\n\n"
@@ -104,11 +117,11 @@ edit('Telegram/SourceFiles/ciragram/misc/ciragram_misc.cpp',
 # главное меню: убрать ссылки на канал, форум и репозиторий автора
 mm = 'Telegram/SourceFiles/window/window_main_menu.cpp'
 if os.path.exists(mm):
-    t = open(mm, encoding='utf-8', errors='surrogateescape', newline='').read()
+    t, mm_crlf = read_lf(mm)
     t = re.sub(r'links->setMarkedText\(.*?https://t\.me/mokaforum"_q\)\)\);', 'links->setText(QString());', t, count=1, flags=re.S)
     t = re.sub(r'tr::link\(\s*u"ciraGram Desktop"_q,\s*u"https://github\.com/mokagram/mokagram"_q\)',
                'TextWithEntities{ u"ciraGram Desktop"_q }', t, count=1)
-    open(mm, 'w', encoding='utf-8', errors='surrogateescape', newline='').write(t)
+    write_lf(mm, t, mm_crlf)
 
 # общая функция запросов к внешнему боту: отключаем целиком
 edit('Telegram/SourceFiles/ciragram/misc/ciragram_misc.cpp',
@@ -152,11 +165,11 @@ print('byte-array .inc fixed:', fixed)
 def sub_file(path, pattern, repl, flags=0):
     if not os.path.exists(path):
         print('missing', path); return
-    t = open(path, encoding='utf-8', errors='surrogateescape', newline='').read()
+    t, crlf = read_lf(path)
     t2, n = re.subn(pattern, repl, t, flags=flags)
     print('sub', path, n)
     if n:
-        open(path, 'w', encoding='utf-8', errors='surrogateescape', newline='').write(t2)
+        write_lf(path, t2, crlf)
 
 sm = 'Telegram/SourceFiles/settings/sections/settings_main.cpp'
 sub_file(sm, r'[ \t]*builder\.addButton\(\{\s*\.id = u"main/(?:channel|forum)"_q,.*?\}\);\s*\n', '', re.S)
@@ -231,3 +244,79 @@ if os.path.exists(icons_inc):
     with open(icons_inc, 'w', encoding='utf-8', newline='\n') as f:
         f.write('\n'.join(lines) + '\n')
     print('app icons regenerated')
+
+# --- Фирменный фон чата ciraGram (вместо чистого чёрного у ночной темы) ---
+code_dir = os.path.join('cira-cloud', 'code')
+def code(name):
+    return open(os.path.join(code_dir, name), encoding='utf-8').read()
+
+fx_cpp = 'Telegram/SourceFiles/ciragram/effects/ciragram_effects.cpp'
+fx_h = 'Telegram/SourceFiles/ciragram/effects/ciragram_effects.h'
+edit(fx_cpp, 'constexpr auto kWallpaperFile = "look.wallpaper.file";\n',
+     'constexpr auto kWallpaperFile = "look.wallpaper.file";\nconstexpr auto kBrandBackground = "look.cira_background";\n')
+edit(fx_cpp, '#include <QtGui/QRadialGradient>\n',
+     '#include <QtGui/QRadialGradient>\n#include <QtGui/QLinearGradient>\n#include <QtGui/QTransform>\n#include "ui/style/style_core_scale.h"\n')
+edit(fx_cpp, '\tS::Register({\n\t\t.key = QString::fromUtf8(kWallpaperFile),\n\t\t.kind = S::Kind::String,\n\t\t.defaultValue = QString(),\n\t\t.hidden = true,\n\t});\n',
+     '\tS::Register({\n\t\t.key = QString::fromUtf8(kWallpaperFile),\n\t\t.kind = S::Kind::String,\n\t\t.defaultValue = QString(),\n\t\t.hidden = true,\n\t});\n' + code('brand_setting.cpp'))
+edit(fx_cpp, '\n} // namespace Ciragram::Effects\n',
+     code('brand_background.cpp') + '\n} // namespace Ciragram::Effects\n')
+edit(fx_h, '[[nodiscard]] bool PaintWallpaper(QPainter &p, QSize fill, QRect clip, bool paused);\n',
+     '[[nodiscard]] bool PaintWallpaper(QPainter &p, QSize fill, QRect clip, bool paused);\n'
+     '[[nodiscard]] bool PaintBrandBackground(QPainter &p, QSize fill, QRect clip, const QColor &base);\n')
+edit(fx_h, 'class QPainter;\n', 'class QPainter;\nclass QColor;\n')
+edit('Telegram/SourceFiles/window/section_widget.cpp',
+     '\t\tp.fillRect(clip, *background.colorForFill);\n',
+     '\t\tif (!Ciragram::Effects::PaintBrandBackground(p, fill, clip, *background.colorForFill)) {\n'
+     '\t\t\tp.fillRect(clip, *background.colorForFill);\n'
+     '\t\t}\n')
+lang_inc = 'Telegram/SourceFiles/ciragram/lang/ciragram_lang_table.inc'
+lt, lt_crlf = read_lf(lang_inc)
+for ru, en in [
+        ('Фирменный фон ciraGram', 'ciraGram background'),
+        ('Спокойный узор из знаков ciraGram вместо однотонного фона чата. Работает с однотонными обоями.',
+         'A calm pattern of ciraGram marks instead of a plain chat background. Works with solid color wallpapers.')]:
+    line = '\t{ "%s", "%s" },\n' % (ru, en)
+    if line not in lt:
+        lt += line
+write_lf(lang_inc, lt, lt_crlf)
+
+# --- Распознавание речи: модель грузится в фоне, интерфейс не замирает при запуске ---
+asr = 'Telegram/SourceFiles/ciragram/asr/ciragram_asr.cpp'
+edit(asr, '\tbool init() {\n\t\tstd::lock_guard lock(_mutex);\n\t\tif (_initialized) {\n\t\t\treturn _models != nullptr;\n\t\t}\n',
+     '\tbool init() {\n\t\tstd::lock_guard lock(_initMutex);\n\t\tif (_initialized) {\n\t\t\treturn ready();\n\t\t}\n')
+edit(asr, '\t\t_models = tinyasr_load(\n', '\t\tconst auto models = tinyasr_load(\n')
+edit(asr, '\t\tif (!_models) {\n', '\t\tif (!models) {\n')
+edit(asr, '\t\t_thread = std::thread([this] { Loop(); });\n',
+     '\t\t{\n\t\t\tstd::lock_guard modelsLock(_mutex);\n\t\t\t_models = models;\n\t\t}\n\t\t_thread = std::thread([this] { Loop(); });\n')
+edit(asr, '\t~Impl() {\n', '\t~Impl() {\n\t\tstd::lock_guard initLock(_initMutex);\n')
+edit(asr, '\tmutable std::mutex _mutex;\n', '\tmutable std::mutex _mutex;\n\tstd::mutex _initMutex;\n')
+edit(asr, '\tif (!Engine::Instance().init()) {\n\t\tSettings::SetBool(kKeyEnabled, false);\n\t\treturn;\n\t}\n',
+     code('asr_async.cpp'))
+
+# --- Проверка: каждая правка обязана примениться, иначе сборка падает сразу, а не через 5 часов ---
+REQUIRED = [
+    ('Telegram/SourceFiles/ciragram/misc/ciragram_misc.cpp', 'внешний бот отключён'),
+    ('Telegram/SourceFiles/ciragram/misc/ciragram_misc.cpp', 'запросы к внешнему боту отключены'),
+    ('Telegram/SourceFiles/ciragram/misc/ciragram_misc.cpp', 'фоновый опрос не нужен'),
+    ('Telegram/SourceFiles/ciragram/lang/ciragram_lang.cpp', 'QLocale::system()'),
+    ('Telegram/SourceFiles/ciragram/plugins/ciragram_plugins.cpp', 'L"python\\\\"'),
+    (fx_cpp, 'bool PaintBrandBackground('),
+    (fx_cpp, 'constexpr auto kBrandBackground'),
+    (fx_cpp, 'Фирменный фон ciraGram'),
+    (fx_cpp, 'QtGui/QLinearGradient'),
+    (fx_h, 'PaintBrandBackground'),
+    ('Telegram/SourceFiles/window/section_widget.cpp', 'PaintBrandBackground'),
+    (asr, 'std::mutex _initMutex;'),
+    (asr, 'const auto models = tinyasr_load('),
+    (asr, '_models = models;'),
+    (asr, 'std::lock_guard initLock(_initMutex);'),
+    (asr, 'crl::async([] {'),
+    ('Telegram/SourceFiles/boxes/about_box.cpp', 'ciraGram. Основано на Telegram Desktop.'),
+    ('Telegram/Resources/winrc/Telegram.rc', 'VALUE "ProductName", "ciraGram"'),
+]
+missing = [(f, m) for f, m in REQUIRED if not os.path.exists(f) or m not in read_lf(f)[0]]
+if missing:
+    for f, m in missing:
+        print('REQUIRED EDIT MISSING:', f, '->', m)
+    sys.exit(1)
+print('all required edits present:', len(REQUIRED))
